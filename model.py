@@ -2,8 +2,7 @@ import torch
 
 
 class Encoder(torch.nn.Module):
-    def __init__(self, activation, bias: bool = True, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(self, activation, bias: bool = True) -> None:
         self.activation = activation
         self.en1 = torch.nn.Linear(26 * 5, 26, bias)
         self.en2 = torch.nn.Linear(26 * 6, 26, bias)
@@ -18,14 +17,11 @@ class Encoder(torch.nn.Module):
         x2 = self.activation(x2)
         x3 = self.en3(torch.cat([input, x2], -1))
         x3 = self.activation(x3)
-        # x4 = self.en4(torch.cat([input, x3], -1))
-        # x4 = self.activation(x4)
         return torch.stack([x1, x2, x3], -1).mean(-1)
 
 
 class Decoder(torch.nn.Module):
-    def __init__(self, activation, bias: bool = True, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(self, activation, bias: bool = True) -> None:
         self.activation = activation
         self.de1 = torch.nn.Linear(26, 26 * 5, bias)
         self.de2 = torch.nn.Linear(26 * 6, 26 * 5, bias)
@@ -39,11 +35,9 @@ class Decoder(torch.nn.Module):
         x2 = self.activation(x2)
         x3 = self.de3(torch.cat([input, x2], -1))
         x3 = self.activation(x3)
-        # x4 = self.de4(torch.cat([input, x3], -1))
-        # x4 = self.activation(x4)
         output = torch.stack([x1, x2, x3], -1).mean(-1)
         output = torch.reshape(output, (output.size()[0], 5, 26))
-        return torch.nn.Softmax(-1)(output).flatten(1)
+        return torch.nn.Softmax(-1)(output)
 
 
 class AutoEncoder(torch.nn.Module):
@@ -54,4 +48,18 @@ class AutoEncoder(torch.nn.Module):
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         x = self.Encoder(input)
-        return self.Decoder(x)
+        return self.Decoder(x).flatten(1)
+
+
+class WordleBot(torch.nn.Module):
+    def __init__(self, activation) -> None:
+        self.activation = activation
+        self._in = torch.nn.Linear(26 + )
+        self.out = torch.nn.Linear(32, 26)
+    
+    def encode_gamestate(self, letter_state: torch.Tensor, placement_state: torch.Tensor) -> torch.Tensor:
+        x = torch.cat([letter_state.flatten(1), placement_state])
+        return x
+
+    def forward(self, game_state: torch.Tensor, max_recurrency: int = 1) -> torch.Tensor:
+        pass

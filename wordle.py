@@ -3,10 +3,6 @@ from os import path
 import polars as pl
 import torch
 
-# alphabet: set[str] = set(ascii_lowercase)
-# vowels: set[str] = set("aeiouy")
-# consonants: set[str] = alphabet - vowels
-
 
 class Wordle:
     accepted_words: pl.Series

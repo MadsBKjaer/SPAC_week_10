@@ -44,9 +44,9 @@ class Backpropagation:
         best_loss = torch.inf
         best_accuracy = 0
         for i in range(epochs):
-            for batch_nr, batch in enumerate(dataloader):
+            for batch in dataloader:
                 prediction = self.model(batch)
-                loss = self.loss_function(prediction, batch.reshape_as(prediction))
+                loss = self.loss_function(prediction, batch)
                 self.update_step(loss)
                 new_loss = loss.item()
             if best_loss > new_loss:
