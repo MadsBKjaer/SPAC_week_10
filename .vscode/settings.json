@@ -1,6 +1,7 @@
 {
-    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.typeCheckingMode": "off",
     "cSpell.words": [
-        "Backpropagation"
+        "Backpropagation",
+        "cooldown"
     ]
 }
