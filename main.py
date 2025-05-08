@@ -53,4 +53,4 @@ if __name__ == "__main__":
         Plotter(False),
         max_turns=5,
     )
-    grpo.train(2**10, 8)
+    grpo.train(2**1, 8)

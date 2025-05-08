@@ -106,6 +106,7 @@ class GRPO:
             probabilities = self.model(game_state).squeeze()
             try:
                 action = torch.multinomial(probabilities, 1).squeeze()
+                print(action)
             except Exception as e:
                 print(game_state, probabilities, e)
             word = "".join(ascii_lowercase[i] for i in action.tolist())
