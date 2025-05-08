@@ -100,15 +100,11 @@ class GRPO:
         chosen_actions = []
         reward = defaultdict(lambda: 0, {})
 
-        for turn in range(self.max_turns):
+        for _ in range(self.max_turns):
             game_state = self.wordle.game_state()
             game_states.append(game_state)
             probabilities = self.model(game_state).squeeze()
-            try:
-                action = torch.multinomial(probabilities, 1).squeeze()
-                print(action)
-            except Exception as e:
-                print(game_state, probabilities, e)
+            action = torch.multinomial(probabilities, 1).squeeze()
             word = "".join(ascii_lowercase[i] for i in action.tolist())
             done, _reward = self.wordle.guess_word(word)
 

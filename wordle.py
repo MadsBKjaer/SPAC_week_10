@@ -85,10 +85,15 @@ class Wordle:
         return False, reward
 
 
-class torchWordle(Wordle):
+class torchWordle:
     def __init__(self, parallel_games: int, accepted_words_path, samples=None):
-        super().__init__(accepted_words_path, samples)
         self.parallel_games = parallel_games
+        self.accepted_words = pl.read_csv(accepted_words_path)["word"]
+        self.sample_words = (
+            self.accepted_words[:samples]
+            if samples is not None
+            else self.accepted_words
+        )
         self.samples = len(self.sample_words)
         self.reset_game_states()
 
@@ -156,6 +161,7 @@ def test_run(n):
 
 
 if __name__ == "__main__":
+    pass
     # n = 0
     # time = 0
     # while time < 1:
@@ -164,8 +170,7 @@ if __name__ == "__main__":
     #     print(n, time)
     #     n += 1
     # 2**18=262144 games can be played in parallel in under a second
-    print(2**18)
 
-    timer = timeit.Timer(lambda: test_run(2**18))
-    time = timer.timeit(10) / 10
-    print(time)
+    # timer = timeit.Timer(lambda: test_run(18))
+    # time = timer.timeit(100)
+    # print(time)
