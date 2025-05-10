@@ -23,14 +23,14 @@ class Encoder(torch.nn.Module):
 
 
 class Decoder(torch.nn.Module):
-    def __init__(self, activation, embedding_size: int, bias: bool = True) -> None:
+    def __init__(self, activation, embedding_size: int) -> None:
         super().__init__()
         self.activation = activation
         self.embedding_size = embedding_size
-        self.de1 = torch.nn.Linear(embedding_size, 26 * 5, bias)
-        self.de2 = torch.nn.Linear(embedding_size + 26 * 5, 26 * 5, bias)
-        self.de3 = torch.nn.Linear(embedding_size + 26 * 5, 26 * 5, bias)
-        self.de4 = torch.nn.Linear(embedding_size + 26 * 5, 26 * 5, bias)
+        self.de1 = torch.nn.Linear(embedding_size, 26 * 5)
+        self.de2 = torch.nn.Linear(embedding_size + 26 * 5, 26 * 5)
+        self.de3 = torch.nn.Linear(embedding_size + 26 * 5, 26 * 5)
+        self.de4 = torch.nn.Linear(embedding_size + 26 * 5, 26 * 5)
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         x1 = self.de1(input)
@@ -45,11 +45,11 @@ class Decoder(torch.nn.Module):
 
 
 class AutoEncoder(torch.nn.Module):
-    def __init__(self, activation, embedding_size: int, bias: bool = True) -> None:
+    def __init__(self, activation, embedding_size: int) -> None:
         super().__init__()
         self.embedding_size = embedding_size
-        self.Encoder = Encoder(activation, embedding_size, bias)
-        self.Decoder = Decoder(activation, embedding_size, bias)
+        self.Encoder = Encoder(activation, embedding_size)
+        self.Decoder = Decoder(activation, embedding_size)
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         x = self.Encoder(input)
@@ -57,18 +57,16 @@ class AutoEncoder(torch.nn.Module):
 
 
 class WordleBot(torch.nn.Module):
-    def __init__(
-        self, activation, auto_encoder: AutoEncoder, embedding_size: int
-    ) -> None:
+    def __init__(self, activation, embedding_size: int) -> None:
         super().__init__()
         self.activation = activation
-        self.out = torch.nn.Linear(32, embedding_size)
-        self.rec1 = torch.nn.Linear(32 + 16, 32)
-        self.rec2 = torch.nn.Linear(32 * 2, 32)
-        self.rec3 = torch.nn.Linear(32 * 2, 32)
-        self.gs1 = torch.nn.Linear(26 * 2 + 5, 16)
-        self.gs2 = torch.nn.Linear(26 * 2 + 5 + 16, 16)
-        self.auto_encoder = auto_encoder
+        self.embedding_size = embedding_size
+        self.rec1 = torch.nn.Linear(embedding_size * 2, embedding_size)
+        self.rec2 = torch.nn.Linear(embedding_size * 2, embedding_size)
+        self.rec3 = torch.nn.Linear(embedding_size * 2, embedding_size)
+        self.gs1 = torch.nn.Linear(26 * 6 + 5, embedding_size)
+        self.gs2 = torch.nn.Linear(26 * 6 + 5 + embedding_size, embedding_size)
+        self.decoder = Decoder(activation, embedding_size)
 
         # Freezes the auto encoder parameters
         # for param in auto_encoder.parameters():
@@ -96,8 +94,7 @@ class WordleBot(torch.nn.Module):
         max_recurrence: int = 1,
     ) -> torch.Tensor:
         game_state = self.encode_game_state(game_state)
-        internal_state1 = torch.zeros((game_state.size()[0], 32))
+        internal_state1 = torch.zeros((game_state.size()[0], self.embedding_size))
         internal_state2 = self.recurrent_block(game_state, internal_state1)
-        internal_state3 = self.recurrent_block(game_state, internal_state2)
-        word_embedding = torch.nn.functional.normalize(self.out(internal_state3))
-        return self.auto_encoder.Decoder(word_embedding)
+        # internal_state3 = self.recurrent_block(game_state, internal_state2)
+        return self.decoder(torch.nn.functional.normalize(internal_state2))

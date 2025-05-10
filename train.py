@@ -3,7 +3,7 @@ from typing import Any
 from torch.utils.data import DataLoader
 from os import path
 from string import ascii_lowercase
-from wordle import Wordle
+from wordle import torchWordle
 import numpy as np
 from collections import defaultdict
 
@@ -79,7 +79,7 @@ class GRPO:
         self,
         model,
         model_name: str,
-        wordle: Wordle,
+        wordle: torchWordle,
         eps: float,
         optimizer,
         plotter,
@@ -95,104 +95,113 @@ class GRPO:
 
     def collect_trajectory(self):
         self.wordle.reset_game_state()
-        log_probs = []
-        game_states = []
-        chosen_actions = []
-        reward = defaultdict(lambda: 0, {})
+        game_states: list[torch.Tensor] = []
+        log_probs: list[torch.Tensor] = []
+        actions: list[torch.Tensor] = []
 
         for _ in range(self.max_turns):
             game_state = self.wordle.game_state()
+            probabilities = self.model(game_state)
+            action = torch.multinomial(probabilities.flatten(0, 1), 1).reshape(
+                self.wordle.parallel_games, 5
+            )
+            done = self.wordle.guess_word(action)
+
+            log_prob = torch.log(
+                probabilities[
+                    torch.arange(self.wordle.parallel_games),
+                    torch.arange(5).expand((self.wordle.parallel_games, 5)).T,
+                    action.T,
+                ]
+            ).T
+
             game_states.append(game_state)
-            probabilities = self.model(game_state).squeeze()
-            action = torch.multinomial(probabilities, 1).squeeze()
-            word = "".join(ascii_lowercase[i] for i in action.tolist())
-            done, _reward = self.wordle.guess_word(word)
-
-            for key, value in _reward.items():
-                reward[key] += value
-
-            log_prob = torch.log(probabilities[torch.arange(5), action]).squeeze()
             log_probs.append(log_prob.detach())
-            chosen_actions.append(action)
+            actions.append(action)
 
-            if done:
+            if done.all():
                 break
-        return game_states, log_probs, chosen_actions, reward
+        return (
+            torch.stack(game_states, 1),
+            torch.stack(log_probs, 1),
+            torch.stack(actions, 1),
+            self.wordle.rewards().float(),
+        )
 
     def grpo_update(
         self,
-        group_game_states,
-        group_probs,
-        group_actions,
-        group_rewards,
-        batch_size: int,
-        n_iterations=20,
-    ):
-
-        advantages = (group_rewards - np.mean(group_rewards)) / (
-            np.std(group_rewards) + 1e-8
-        )
+        game_states: torch.Tensor,
+        log_probs: torch.Tensor,
+        actions: torch.Tensor,
+        rewards: torch.Tensor,
+        n_iterations: int = 20,
+    ) -> float:
+        game_length: torch.Tensor = torch.logical_not(
+            game_states[:, :, -6:-1].all(-1)
+        ).sum(-1)
+        advantages = (rewards - rewards.mean()) / (rewards.std() + 1e-8)
+        normalized_advantage = advantages / game_length
 
         for i_iter in range(n_iterations):
             loss = 0
+            # print(f"{game_states.size() = }")
+            new_probs = self.model(game_states.flatten(end_dim=1)).reshape(
+                (self.wordle.parallel_games, self.max_turns, 5, 26)
+            )
+            # print(f"{new_probs.size() = }")
+            # print(f"{log_probs.size() = }")
+            new_log_probs = torch.log(
+                new_probs[
+                    torch.arange(self.wordle.parallel_games),
+                    torch.arange(self.max_turns)
+                    .expand(self.wordle.parallel_games, self.max_turns)
+                    .T,
+                    torch.arange(5)
+                    .expand(self.wordle.parallel_games, self.max_turns, 5)
+                    .T,
+                    actions.T,
+                ]
+            ).T
+            # print(f"{new_log_probs.size() = }")
+
+            ratio = torch.exp(new_log_probs - log_probs)
+            # print(f"{ratio.size() = }")
+
+            clipped_ratio = -torch.clamp(ratio, min=1 - self.eps, max=1 + self.eps)
+            # print(f"{clipped_ratio.size() = }")
+
+            # print(f"{advantages.size() = }")
+            trajectory_loss = clipped_ratio * normalized_advantage.reshape(
+                (self.wordle.parallel_games, 1, 1)
+            )
+            # print(f"{trajectory_loss.size() = }")
+
             # iterating over each trajectory in the group
-            for batch in range(batch_size):
-                trajectory_loss = 0
-                # iterating over each time step in the trajectory
-                for t in range(len(group_game_states[batch])):
-                    new_policy_probs = self.model(group_game_states[batch][t]).squeeze()
-                    new_log_probs = torch.log(new_policy_probs)[
-                        torch.arange(5), group_actions[batch][t]
-                    ]
-
-                    ratio = torch.exp(new_log_probs - group_probs[batch][t])
-                    clipped_ratio = torch.clamp(
-                        ratio, min=1 - self.eps, max=1 + self.eps
-                    )
-                    trajectory_loss = (
-                        trajectory_loss - clipped_ratio * advantages[batch].item()
-                    )
-                trajectory_loss /= len(group_game_states[batch])
-                loss = loss + trajectory_loss
-            loss = (loss / batch_size).sum()
-
+            loss = trajectory_loss.sum() / self.wordle.parallel_games
+            # print(f"{loss = }")
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
 
-    def train(self, epochs: int, batch_size: int):
-        for i_episode in range(epochs):
-            print(f"{i_episode}/{epochs} = {i_episode/epochs:.1%}")
-            group_game_states = []
-            group_probs = []
-            group_actions = []
-            group_rewards = []
-            _reward = defaultdict(lambda: 0, {})
+        return rewards.mean().item()
 
-            for batch in range(batch_size):
-                game_states, log_probs, chosen_actions, reward = (
-                    self.collect_trajectory()
-                )
+    def train(self, epochs: int, iterations: int, verbose: int = False):
+        for epoch in range(epochs):
 
-                for key, value in reward.items():
-                    _reward[key] += value
-
-                group_game_states.append(game_states)
-                group_probs.append(log_probs)
-                group_actions.append(chosen_actions)
-                group_rewards.append(np.sum(list(reward.values())))
+            game_states, log_probs, actions, rewards = self.collect_trajectory()
 
             # update policy using grpo on the collected trajectories
-            self.grpo_update(
-                group_game_states,
-                group_probs,
-                group_actions,
-                group_rewards,
-                batch_size,
-                8,
+            mean_reward = self.grpo_update(
+                game_states,
+                log_probs,
+                actions,
+                rewards,
+                iterations,
             )
-
+            if verbose:
+                print(f"{epoch}/{epochs} = {epoch/epochs:.1%} - {mean_reward = }")
             # if i_episode % 1 == 0:
             #     print(np.mean(group_rewards))
-            self.plot.update(i_episode, _reward)
-        self.plot.save_figure(f"wordle_{epochs}_{batch_size}_{self.eps}")
+            if epoch % 10 == 0:
+                self.plot.update(epoch, mean_reward)
+        # self.plot.save_figure(f"wordle_{epochs}_{batch_size}_{self.eps}")

@@ -95,9 +95,19 @@ class torchWordle:
             else self.accepted_words
         )
         self.samples = len(self.sample_words)
-        self.reset_game_states()
+        self.reset_game_state()
 
-    def reset_game_states(self):
+    def game_state(self) -> torch.Tensor:
+        return torch.cat(
+            [
+                self.useless_letters,
+                self.useful_letters.flatten(1),
+                self.correct_letters,
+            ],
+            -1,
+        ).float()
+
+    def reset_game_state(self) -> None:
         self.target_words = tokenizer(
             self.sample_words.sample(
                 self.parallel_games,
@@ -108,22 +118,26 @@ class torchWordle:
         self.useful_letters = torch.zeros((self.parallel_games, 26, 5)).bool()
         self.correct_letters = torch.zeros((self.parallel_games, 5)).bool()
         self.done = torch.zeros((self.parallel_games,)).bool()
-        self.rewards = torch.zeros((self.parallel_games, 1))
+        self.reward = torch.zeros((self.parallel_games, 1))
 
-    def guess_word(self, words: torch.Tensor):
+    def guess_word(self, words: torch.Tensor, verbose: bool = False) -> torch.Tensor:
         if words.size()[0] != self.parallel_games:
             words = words.expand_as(self.target_words[0])
+        encoding = to_encoding(words)
+
+        # Reward logic
+        bad_letter = torch.logical_and(
+            encoding.any(-2), self.useless_letters
+        ).sum_to_size((self.parallel_games, 1))
+        bad_placement = torch.logical_and(
+            torch.transpose(encoding, -1, -2), self.useful_letters
+        )
 
         # Game logic
-        self.correct_letters = torch.logical_or(
-            self.correct_letters, torch.eq(words, self.target_words[0])
-        )
-        self.done = torch.logical_or(self.correct_letters.all(-1), self.done)
-        encoding = to_encoding(words)
         self.useless_letters = torch.logical_or(
             self.useless_letters,
             torch.logical_and(
-                encoding.any(-2), torch.logical_not(self.target_words[1]).any(-2)
+                encoding.any(-2), torch.logical_not(self.target_words[1].any(-2))
             ),
         )
         useful_index = torch.logical_and(encoding.any(-2), self.target_words[1].any(-2))
@@ -131,37 +145,108 @@ class torchWordle:
             self.useful_letters[useful_index],
             torch.transpose(encoding, -1, -2)[useful_index],
         )
+        self.correct_letters = torch.logical_or(
+            self.correct_letters, torch.eq(words, self.target_words[0])
+        )
+        self.done = torch.logical_or(self.correct_letters.all(-1), self.done)
 
-        # Reward logic
+        if not verbose:
+            return self.done
 
+        # Printing for debugging
+        print(
+            "Target word:",
+            "".join([ascii_lowercase[i] for i in self.target_words[0][0]]),
+        )
+        print(
+            "Guess:",
+            "".join([ascii_lowercase[i] for i in words[0]]),
+        )
+        print(
+            "Correct letters:",
+            "".join(
+                [
+                    ascii_lowercase[i]
+                    for i, bool_ in zip(
+                        self.target_words[0][0], self.correct_letters[0]
+                    )
+                    if bool_
+                ]
+            ),
+        )
+        print(
+            "Useful letters:",
+            "".join(
+                [
+                    ascii_lowercase[i]
+                    for i, bool_ in enumerate(self.useful_letters.any(-1)[0])
+                    if bool_
+                ]
+            ),
+        )
+        print(
+            "Useless letters:",
+            "".join(
+                [
+                    ascii_lowercase[i]
+                    for i, bool_ in enumerate(self.useless_letters[0])
+                    if bool_
+                ]
+            ),
+        )
+        print(
+            "Bad letter:",
+            "".join(
+                [ascii_lowercase[i] for i, bool_ in enumerate(bad_letter[0]) if bool_]
+            ),
+        )
+        print(
+            "Bad placement:",
+            "".join(
+                [
+                    ascii_lowercase[i]
+                    for i, bool_ in enumerate(bad_placement.any(-1)[0])
+                    if bool_
+                ]
+            ),
+        )
+        print()
         return self.done
 
     def rewards(self) -> torch.Tensor:
-        torch.cat([self.useless_letters, self.useful_letters, self.correct_letters])
+        return torch.cat(
+            [
+                -1 * self.useless_letters,
+                self.useful_letters.flatten(1),
+                5 * self.correct_letters,
+            ],
+            -1,
+        ).sum(-1)
 
 
 def test_run(n):
-    wordle = torchWordle(2**n, path.join("data", "wordle_words_sorted.csv"))
+    wordle = torchWordle(2**n, path.join("data", "wordle_words_sorted.csv"), 1)
 
-    words = ["which"]
-    tokenized_words = tokenizer(words)
-    wordle.guess_word(tokenized_words[0])
     words = ["those"]
     tokenized_words = tokenizer(words)
-    wordle.guess_word(tokenized_words[0])
+    wordle.guess_word(tokenized_words[0], True)
     words = ["would"]
     tokenized_words = tokenizer(words)
-    wordle.guess_word(tokenized_words[0])
+    wordle.guess_word(tokenized_words[0], True)
     words = ["facts"]
     tokenized_words = tokenizer(words)
-    wordle.guess_word(tokenized_words[0])
+    wordle.guess_word(tokenized_words[0], True)
     words = ["odder"]
     tokenized_words = tokenizer(words)
-    wordle.guess_word(tokenized_words[0])
+    wordle.guess_word(tokenized_words[0], True)
+    words = ["which"]
+    tokenized_words = tokenizer(words)
+    wordle.guess_word(tokenized_words[0], True)
 
 
 if __name__ == "__main__":
     pass
+    test_run(0)
     # n = 0
     # time = 0
     # while time < 1:
