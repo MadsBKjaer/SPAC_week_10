@@ -10,18 +10,17 @@ if __name__ == "__main__":
     data_path: str = path.join("data", "wordle_words_sorted.csv")
 
     embedding_size = 64
-    retrain = False
     activation = torch.nn.ReLU()
 
-    wordle = torchWordle(1000, data_path)
-    wordle_bot = WordleBot(activation, embedding_size)
+    wordle = torchWordle(2, data_path)
+    wordle_bot = WordleBot(activation, embedding_size, data_path)
     grpo = GRPO(
         wordle_bot,
         "wordle_bot",
         wordle,
-        0.1,
+        1,
         torch.optim.Adam(wordle_bot.parameters()),
         Plotter(True),
-        max_turns=10,
+        max_turns=1,
     )
-    grpo.train(1000, 10)
+    grpo.train(2**0, 20)

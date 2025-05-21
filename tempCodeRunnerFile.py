@@ -1,0 +1,1 @@
+drop(f"{locked_position}")

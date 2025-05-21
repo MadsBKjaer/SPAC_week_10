@@ -2,10 +2,7 @@ import torch
 from typing import Any
 from torch.utils.data import DataLoader
 from os import path
-from string import ascii_lowercase
 from wordle import torchWordle
-import numpy as np
-from collections import defaultdict
 
 
 class Backpropagation:
@@ -101,10 +98,12 @@ class GRPO:
 
         for _ in range(self.max_turns):
             game_state = self.wordle.game_state()
-            probabilities = self.model(game_state)
-            action = torch.multinomial(probabilities.flatten(0, 1), 1).reshape(
-                self.wordle.parallel_games, 5
-            )
+            logits = self.model(game_state)
+            probabilities = torch.nn.Softmax(-1)(logits)
+            action = self.model.sample_word(logits)
+            # action = torch.multinomial(probabilities.flatten(0, 1), 1).reshape(
+            #     self.wordle.parallel_games, 5
+            # )
             done = self.wordle.guess_word(action)
 
             log_prob = torch.log(
@@ -144,24 +143,21 @@ class GRPO:
 
         for i_iter in range(n_iterations):
             loss = 0
-            # print(f"{game_states.size() = }")
-            new_probs = self.model(game_states.flatten(end_dim=1)).reshape(
+            new_logits = self.model(game_states.flatten(end_dim=1)).reshape(
                 (self.wordle.parallel_games, self.max_turns, 5, 26)
             )
-            # print(f"{new_probs.size() = }")
-            # print(f"{log_probs.size() = }")
-            new_log_probs = torch.log(
-                new_probs[
-                    torch.arange(self.wordle.parallel_games),
-                    torch.arange(self.max_turns)
-                    .expand(self.wordle.parallel_games, self.max_turns)
-                    .T,
-                    torch.arange(5)
-                    .expand(self.wordle.parallel_games, self.max_turns, 5)
-                    .T,
-                    actions.T,
-                ]
-            ).T
+            new_probs = torch.softmax(
+                new_logits,
+                -1,
+            )[
+                torch.arange(self.wordle.parallel_games),
+                torch.arange(self.max_turns)
+                .expand(self.wordle.parallel_games, self.max_turns)
+                .T,
+                torch.arange(5).expand(self.wordle.parallel_games, self.max_turns, 5).T,
+                actions.T,
+            ]
+            new_log_probs = torch.log(new_probs).T
             # print(f"{new_log_probs.size() = }")
 
             ratio = torch.exp(new_log_probs - log_probs)
@@ -186,6 +182,7 @@ class GRPO:
         return rewards.mean().item()
 
     def train(self, epochs: int, iterations: int, verbose: int = False):
+        self.plot.max_x = epochs
         for epoch in range(epochs):
 
             game_states, log_probs, actions, rewards = self.collect_trajectory()
@@ -200,8 +197,5 @@ class GRPO:
             )
             if verbose:
                 print(f"{epoch}/{epochs} = {epoch/epochs:.1%} - {mean_reward = }")
-            # if i_episode % 1 == 0:
-            #     print(np.mean(group_rewards))
-            if epoch % 10 == 0:
-                self.plot.update(epoch, mean_reward)
-        # self.plot.save_figure(f"wordle_{epochs}_{batch_size}_{self.eps}")
+            self.plot.update(epoch, mean_reward)
+        self.plot.save_figure(f"wordle_test")

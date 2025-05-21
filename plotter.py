@@ -10,6 +10,7 @@ class Plotter:
         self.x = []
         self.y = []
         self.graph = plt.plot(self.x, self.y)[0]
+        self.max_x = 0
 
     def update(self, x, reward):
         self.x.append(x)
@@ -17,6 +18,7 @@ class Plotter:
 
         self.graph.remove()
         self.graph = plt.plot(self.x, self.y, color="blue")[0]
+        plt.title(f"{x + 1:6} - {(x + 1)/self.max_x:6.1%}")
         plt.pause(0.00001)
 
     def save_figure(self, name: str) -> None:

@@ -4,7 +4,6 @@ import polars as pl
 import torch
 from tokenizer import tokenizer, to_encoding
 from collections import defaultdict
-import timeit
 
 
 class Wordle:
